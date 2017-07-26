@@ -1,0 +1,14 @@
+adding Makefile
+--- /dev/null
++++ b/Makefile
+@@ -0,0 +1,10 @@
++all:
++	cp /usr/sbin/mailgraph .
++	patch -b mailgraph mailgraph.patch
++
++install:
++	install -d $(DESTDIR)/usr/sbin
++	install -d $(DESTDIR)/usr/lib/nagios/plugins
++	install mailgraph $(DESTDIR)/usr/sbin/mailgraph
++	install check_mailstat.pl $(DESTDIR)/usr/lib/nagios/plugins/check_mailstat
++

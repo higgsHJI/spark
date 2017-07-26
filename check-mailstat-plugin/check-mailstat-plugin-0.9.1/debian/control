@@ -1,0 +1,15 @@
+Source: check-mailstat-plugin
+Section: net
+Priority: optional
+Maintainer: Nick Schmalenberger <nicks@conviva.com>
+Build-Depends: debhelper (>=9), quilt, mailgraph
+Standards-Version: 3.9.6
+Homepage: http://linuxplayer.org/2010/12/check_mailstat-pl-a-nagios-plugin-for-monitoring-mail-server-statistics
+
+Package: check-mailstat-plugin
+Architecture: all
+Depends: ${misc:Depends}, mailgraph
+Description: nagios plugin to get metrics from mailgraph
+ This patches mailgraph to write counters to a file and 
+ the nagios plugin calculuates the rate since last check
+ to output more often than the mailgraph RRD would allow.

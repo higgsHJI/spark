@@ -1,0 +1,12 @@
+fix context line for initializing metrics output to include greylisted and delayed metrics
+--- a/mailgraph.patch
++++ b/mailgraph.patch
+@@ -3,7 +3,7 @@
+ @@ -382,6 +382,7 @@
+  my $year;
+  my $this_minute;
+- my %sum = ( sent => 0, received => 0, bounced => 0, rejected => 0, virus => 0, spam => 0 );
++ my %sum = ( sent => 0, received => 0, bounced => 0, rejected => 0, virus => 0, spam => 0, greylisted => 0, delayed => 0);
+ +my %sum_stat = %sum;
+  my $rrd_inited=0;
+  

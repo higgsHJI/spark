@@ -1,0 +1,5 @@
+check-mailstat-plugin (0.9.1-1) unstable; urgency=medium
+
+  * Initial release
+
+ -- Nick Schmalenberger <nicks@conviva.com>  Sun, 10 Sep 2017 23:26:27 +0000
