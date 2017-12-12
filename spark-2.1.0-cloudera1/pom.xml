@@ -92,7 +92,8 @@
     <module>assembly</module>
     <module>external/flume</module>
     <module>external/flume-sink</module>
-    <module>examples</module>
+    <!--<module>examples</module>-->
+    <module>yarn</module>
     <module>repl</module>
     <module>launcher</module>
     <module>external/kafka-0-8</module>
