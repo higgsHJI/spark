@@ -56,7 +56,8 @@ private[netty] class NettyRpcEnv(
   private val streamManager = new NettyStreamManager(this)
 
   private val transportContext = new TransportContext(transportConf,
-    new NettyRpcHandler(dispatcher, this, streamManager))
+    new NettyRpcHandler(dispatcher, this, streamManager),
+    conf.getBoolean("spark.rpc.io.closeClientIdleConnections", false))
 
   private def createClientBootstraps(): java.util.List[TransportClientBootstrap] = {
     if (securityManager.isAuthenticationEnabled()) {

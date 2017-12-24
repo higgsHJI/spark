@@ -45,6 +45,8 @@ sealed trait TaskEndReason
 @DeveloperApi
 case object Success extends TaskEndReason
 
+case object MarkedSuccess extends TaskEndReason
+
 /**
  * :: DeveloperApi ::
  * Various possible reasons why a task failed.

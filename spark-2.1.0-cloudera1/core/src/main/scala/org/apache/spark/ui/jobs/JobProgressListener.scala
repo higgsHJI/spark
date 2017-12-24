@@ -19,18 +19,18 @@ package org.apache.spark.ui.jobs
 
 import java.util.concurrent.TimeoutException
 
-import scala.collection.mutable.{HashMap, HashSet, LinkedHashMap, ListBuffer}
-
 import org.apache.spark._
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.executor.TaskMetrics
 import org.apache.spark.internal.Logging
 import org.apache.spark.internal.config._
-import org.apache.spark.scheduler._
 import org.apache.spark.scheduler.SchedulingMode.SchedulingMode
+import org.apache.spark.scheduler._
 import org.apache.spark.storage.BlockManagerId
 import org.apache.spark.ui.SparkUI
 import org.apache.spark.ui.jobs.UIData._
+
+import scala.collection.mutable.{HashMap, HashSet, ListBuffer}
 
 /**
  * :: DeveloperApi ::
@@ -369,7 +369,7 @@ class JobProgressListener(conf: SparkConf) extends SparkListener with Logging {
       val execSummary = execSummaryMap.getOrElseUpdate(info.executorId, new ExecutorSummary)
 
       taskEnd.reason match {
-        case Success =>
+        case Success | MarkedSuccess =>
           execSummary.succeededTasks += 1
         case TaskKilled =>
           execSummary.killedTasks += 1
@@ -381,7 +381,7 @@ class JobProgressListener(conf: SparkConf) extends SparkListener with Logging {
 
       val errorMessage: Option[String] =
         taskEnd.reason match {
-          case org.apache.spark.Success =>
+          case org.apache.spark.Success | org.apache.spark.MarkedSuccess =>
             stageData.completedIndices.add(info.index)
             stageData.numCompleteTasks += 1
             None
@@ -419,7 +419,7 @@ class JobProgressListener(conf: SparkConf) extends SparkListener with Logging {
       ) {
         jobData.numActiveTasks -= 1
         taskEnd.reason match {
-          case Success =>
+          case Success | MarkedSuccess =>
             jobData.numCompletedTasks += 1
           case TaskKilled =>
             jobData.numKilledTasks += 1

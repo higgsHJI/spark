@@ -552,10 +552,8 @@ class DAGScheduler(
    * @param callSite where in the user program this job was called
    * @param resultHandler callback to pass each result to
    * @param properties scheduler properties to attach to this job, e.g. fair scheduler pool name
-   *
    * @return a JobWaiter object that can be used to block until the job finishes executing
    *         or can be used to cancel the job.
-   *
    * @throws IllegalArgumentException when partitions ids are illegal
    */
   def submitJob[T, U](
@@ -599,7 +597,6 @@ class DAGScheduler(
    * @param callSite where in the user program this job was called
    * @param resultHandler callback to pass each result to
    * @param properties scheduler properties to attach to this job, e.g. fair scheduler pool name
-   *
    * @throws Exception when the job fails
    */
   def runJob[T, U](
@@ -1143,7 +1140,8 @@ class DAGScheduler(
 
     val stage = stageIdToStage(task.stageId)
     event.reason match {
-      case Success =>
+      case Success | MarkedSuccess =>
+        // @hji, MarkedSuccess would never come here, just make compiler happy
         stage.pendingPartitions -= task.partitionId
         task match {
           case rt: ResultTask[_, _] =>
@@ -1181,13 +1179,31 @@ class DAGScheduler(
           case smt: ShuffleMapTask =>
             val shuffleStage = stage.asInstanceOf[ShuffleMapStage]
             updateAccumulators(event)
-            val status = event.result.asInstanceOf[MapStatus]
-            val execId = status.location.executorId
-            logDebug("ShuffleMapTask finished on " + execId)
-            if (failedEpoch.contains(execId) && smt.epoch <= failedEpoch(execId)) {
-              logInfo(s"Ignoring possibly bogus $smt completion from executor $execId")
+
+            // @hji, the task failed, but marked as success
+            // The blockManagerId is passed on from event
+            // If there were some tasks on the failed host succeeded and had sent message
+            // before the host failed,
+            // should try to remove them from output since the fetch would fail in the next stage.
+            if (event.reason == MarkedSuccess) {
+              val port = Utils.getSparkOrYarnConfig(sc.getConf,
+                "spark.shuffle.service.port", "7337").toInt
+              val bld = BlockManagerId(event.taskInfo.executorId, event.taskInfo.host, port)
+              val numDepPartitions = shuffleStage.shuffleDep.partitioner.numPartitions
+              shuffleStage.addOutputLoc(smt.partitionId,
+                MapStatus(bld, Array.fill[Long](numDepPartitions)(0))
+              )
+              shuffleStage.cleanUp(bld)
             } else {
-              shuffleStage.addOutputLoc(smt.partitionId, status)
+              val status = event.result.asInstanceOf[MapStatus]
+              val execId = status.location.executorId
+              logDebug("ShuffleMapTask finished on " + execId)
+
+              if (failedEpoch.contains(execId) && smt.epoch <= failedEpoch(execId)) {
+                logInfo(s"Ignoring possibly bogus $smt completion from executor $execId")
+              } else {
+                shuffleStage.addOutputLoc(smt.partitionId, status)
+              }
             }
 
             if (runningStages.contains(shuffleStage) && shuffleStage.pendingPartitions.isEmpty) {

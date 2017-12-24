@@ -32,6 +32,7 @@ public class TransportConf {
   private final String SPARK_NETWORK_IO_MODE_KEY;
   private final String SPARK_NETWORK_IO_PREFERDIRECTBUFS_KEY;
   private final String SPARK_NETWORK_IO_CONNECTIONTIMEOUT_KEY;
+  private final String SPARK_NETWORK_IO_BUILD_CONNECTIONTIMEOUT_KEY;
   private final String SPARK_NETWORK_IO_BACKLOG_KEY;
   private final String SPARK_NETWORK_IO_NUMCONNECTIONSPERPEER_KEY;
   private final String SPARK_NETWORK_IO_SERVERTHREADS_KEY;
@@ -53,6 +54,7 @@ public class TransportConf {
     SPARK_NETWORK_IO_MODE_KEY = getConfKey("io.mode");
     SPARK_NETWORK_IO_PREFERDIRECTBUFS_KEY = getConfKey("io.preferDirectBufs");
     SPARK_NETWORK_IO_CONNECTIONTIMEOUT_KEY = getConfKey("io.connectionTimeout");
+    SPARK_NETWORK_IO_BUILD_CONNECTIONTIMEOUT_KEY = getConfKey("io.build.connectionTimeout");
     SPARK_NETWORK_IO_BACKLOG_KEY = getConfKey("io.backLog");
     SPARK_NETWORK_IO_NUMCONNECTIONSPERPEER_KEY =  getConfKey("io.numConnectionsPerPeer");
     SPARK_NETWORK_IO_SERVERTHREADS_KEY = getConfKey("io.serverThreads");
@@ -87,6 +89,36 @@ public class TransportConf {
       conf.get("spark.network.timeout", "120s"));
     long defaultTimeoutMs = JavaUtils.timeStringAsSec(
       conf.get(SPARK_NETWORK_IO_CONNECTIONTIMEOUT_KEY, defaultNetworkTimeoutS + "s")) * 1000;
+    return (int) defaultTimeoutMs;
+  }
+
+  /** Build connect timeout in milliseconds. Default 120 secs. */
+  /**
+   * With our configuration of ~140 ec2 instances and 4000 partitions/tasks at the first stage, we constantly see that
+   * there are some tasks in the second stage (400 partitions/tasks) got timeout exception when creating the connection.
+   * The reason for this timeout is not fully understood yet. But we observe that the connection can be rebuilt in ms after
+   * the timeout, thus feeling that it would be good to set a small value for this timeout so that these several tasks would
+   * not delay the whole stage/job.
+   *
+   * Caused by: io.netty.channel.AbstractChannel$AnnotatedConnectException: Connection timed out: sls187.us-east-1.prod.conviva.com/172.22.96.198:7337
+   at sun.nio.ch.SocketChannelImpl.checkConnect(Native Method)
+   at sun.nio.ch.SocketChannelImpl.finishConnect(SocketChannelImpl.java:717)
+   at io.netty.channel.socket.nio.NioSocketChannel.doFinishConnect(NioSocketChannel.java:257)
+   at io.netty.channel.nio.AbstractNioChannel$AbstractNioUnsafe.finishConnect(AbstractNioChannel.java:291)
+   at io.netty.channel.nio.NioEventLoop.processSelectedKey(NioEventLoop.java:631)
+   at io.netty.channel.nio.NioEventLoop.processSelectedKeysOptimized(NioEventLoop.java:566)
+   at io.netty.channel.nio.NioEventLoop.processSelectedKeys(NioEventLoop.java:480)
+   at io.netty.channel.nio.NioEventLoop.run(NioEventLoop.java:442)
+   at io.netty.util.concurrent.SingleThreadEventExecutor$2.run(SingleThreadEventExecutor.java:131)
+   at io.netty.util.concurrent.DefaultThreadFactory$DefaultRunnableDecorator.run(DefaultThreadFactory.java:144)
+   ... 1 more
+   * @return
+     */
+  public int buildConnectionTimeoutMs() {
+    long defaultNetworkTimeoutS = JavaUtils.timeStringAsSec(
+            conf.get("spark.network.timeout", "120s"));
+    long defaultTimeoutMs = JavaUtils.timeStringAsSec(
+            conf.get(SPARK_NETWORK_IO_BUILD_CONNECTIONTIMEOUT_KEY, defaultNetworkTimeoutS + "s")) * 1000;
     return (int) defaultTimeoutMs;
   }
 
@@ -175,4 +207,10 @@ public class TransportConf {
     return conf.getBoolean("spark.network.sasl.serverAlwaysEncrypt", false);
   }
 
+  /**
+   * Whether keep client's idle tcp connections
+   */
+  public boolean closeIdleConnections() {
+    return conf.getBoolean("spark.shuffle.io.closeClientIdleConnections", true);
+  }
 }

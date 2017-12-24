@@ -17,21 +17,22 @@
 
 package org.apache.spark.storage
 
-import java.io.{InputStream, IOException}
+import java.io.{IOException, InputStream}
 import java.nio.ByteBuffer
 import java.util.concurrent.LinkedBlockingQueue
 import javax.annotation.concurrent.GuardedBy
 
-import scala.collection.mutable
-import scala.collection.mutable.{ArrayBuffer, HashSet, Queue}
-
-import org.apache.spark.{SparkException, TaskContext}
+import org.apache.commons.io.input.NullInputStream
 import org.apache.spark.internal.Logging
 import org.apache.spark.network.buffer.{FileSegmentManagedBuffer, ManagedBuffer}
 import org.apache.spark.network.shuffle.{BlockFetchingListener, ShuffleClient}
 import org.apache.spark.shuffle.FetchFailedException
 import org.apache.spark.util.Utils
 import org.apache.spark.util.io.ChunkedByteBufferOutputStream
+import org.apache.spark.{SparkException, TaskContext}
+
+import scala.collection.mutable
+import scala.collection.mutable.{ArrayBuffer, HashSet, Queue}
 
 /**
  * An iterator that fetches multiple blocks. For local blocks, it fetches from the local block
@@ -177,6 +178,7 @@ final class ShuffleBlockFetcherIterator(
     val blockIds = req.blocks.map(_._1.toString)
 
     val address = req.address
+
     shuffleClient.fetchBlocks(address.host, address.port, address.executorId, blockIds.toArray,
       new BlockFetchingListener {
         override def onBlockFetchSuccess(blockId: String, buf: ManagedBuffer): Unit = {
@@ -351,7 +353,6 @@ final class ShuffleBlockFetcherIterator(
               buf.release()
               throwFetchFailedException(blockId, address, e)
           }
-
           input = streamWrapper(blockId, in)
           // Only copy the stream if it's wrapped by compression or encryption, also the size of
           // block is small (the decompressed block is smaller than maxBytesInFlight)
@@ -383,17 +384,26 @@ final class ShuffleBlockFetcherIterator(
               in.close()
             }
           }
-
         case FailureFetchResult(blockId, address, e) =>
-          throwFetchFailedException(blockId, address, e)
+          // @hji ignore the exception and let processing continue
+          logError(s"@hji: ignore the failure fetch exception with blockId: $blockId, " +
+            s"address: $address. Going to return empty stream for this fetch.")
+          input = streamWrapper(blockId, new NullInputStream(0))
+//          throwFetchFailedException(blockId, address, e)
       }
 
       // Send fetch requests up to maxBytesInFlight
       fetchUpToMaxBytes()
     }
 
-    currentResult = result.asInstanceOf[SuccessFetchResult]
-    (currentResult.blockId, new BufferReleasingInputStream(input, this))
+    val blockId = if (result.isInstanceOf[SuccessFetchResult]) {
+      currentResult = result.asInstanceOf[SuccessFetchResult]
+      currentResult.blockId
+    } else {
+      result.asInstanceOf[FailureFetchResult].blockId
+    }
+
+    (blockId, new BufferReleasingInputStream(input, this))
   }
 
   private def fetchUpToMaxBytes(): Unit = {
@@ -456,7 +466,8 @@ object ShuffleBlockFetcherIterator {
 
   /**
    * A request to fetch blocks from a remote BlockManager.
-   * @param address remote BlockManager to fetch from.
+    *
+    * @param address remote BlockManager to fetch from.
    * @param blocks Sequence of tuple, where the first element is the block id,
    *               and the second element is the estimated size, used to calculate bytesInFlight.
    */
@@ -474,7 +485,8 @@ object ShuffleBlockFetcherIterator {
 
   /**
    * Result of a fetch from a remote block successfully.
-   * @param blockId block id
+    *
+    * @param blockId block id
    * @param address BlockManager that the block was fetched from.
    * @param size estimated size of the block, used to calculate bytesInFlight.
    *             Note that this is NOT the exact bytes.
@@ -493,7 +505,8 @@ object ShuffleBlockFetcherIterator {
 
   /**
    * Result of a fetch from a remote block unsuccessfully.
-   * @param blockId block id
+    *
+    * @param blockId block id
    * @param address BlockManager that the block was attempted to be fetched from
    * @param e the failure exception
    */

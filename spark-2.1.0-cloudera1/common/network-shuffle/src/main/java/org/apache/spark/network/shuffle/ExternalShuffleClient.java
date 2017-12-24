@@ -79,7 +79,7 @@ public class ExternalShuffleClient extends ShuffleClient {
   @Override
   public void init(String appId) {
     this.appId = appId;
-    TransportContext context = new TransportContext(conf, new NoOpRpcHandler(), true);
+    TransportContext context = new TransportContext(conf, new NoOpRpcHandler(), conf.closeIdleConnections());
     List<TransportClientBootstrap> bootstraps = Lists.newArrayList();
     if (saslEnabled) {
       bootstraps.add(new SaslClientBootstrap(conf, appId, secretKeyHolder, saslEncryptionEnabled));

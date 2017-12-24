@@ -101,6 +101,38 @@ private[spark] class ShuffleMapStage(
     }
   }
 
+  /**
+    * Clear out put location for a partition
+    *
+    * @param partition
+    */
+  def clearOutputLoc(partition: Int): Unit = {
+    val oldLoc = outputLocs(partition).head
+    val numDepPartitions = shuffleDep.partitioner.numPartitions
+    logWarning(s"output number of partitons: $numDepPartitions")
+    outputLocs(partition) = MapStatus(oldLoc.location, Array.fill[Long](numDepPartitions)(0)) :: Nil
+  }
+
+  /**
+    * Clean up tasks succeeded before host fails
+    * As it's hard to differentiate the MapStatus is empty, the location
+    * will be updated multiple times unnecessarily (Let's fix this later).
+    *
+    * @param bld
+    */
+  def cleanUp(bld: BlockManagerId): Unit = synchronized {
+    outputLocs.zipWithIndex.filter(
+      item => item._1 != Nil && item._1.nonEmpty &&
+        item._1.head.location.host.equals(bld.host)
+    ).foreach(
+      item => {
+        logWarning(s"clear up output location for partition: ${item._2}, " +
+          s"since it's on the dead host: ${bld.host}")
+        clearOutputLoc(item._2)
+      }
+    )
+  }
+
   def removeOutputLoc(partition: Int, bmAddress: BlockManagerId): Unit = {
     val prevList = outputLocs(partition)
     val newList = prevList.filterNot(_.location == bmAddress)

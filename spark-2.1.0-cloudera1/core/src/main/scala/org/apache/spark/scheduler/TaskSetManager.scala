@@ -687,7 +687,12 @@ private[spark] class TaskSetManager(
     // "result.value()" in "TaskResultGetter.enqueueSuccessfulTask" before reaching here.
     // Note: "result.value()" only deserializes the value when it's called at the first time, so
     // here "result.value()" just returns the value and won't block other threads.
-    sched.dagScheduler.taskEnded(tasks(index), Success, result.value(), result.accumUpdates, info)
+    // @hji, some failed tasks will be of status MarkedSuccess
+    if (result==null) {
+      sched.dagScheduler.taskEnded(tasks(index), MarkedSuccess, null, Seq.empty, info)
+    } else {
+      sched.dagScheduler.taskEnded(tasks(index), Success, result.value(), result.accumUpdates, info)
+    }
     // Kill any other attempts for the same task (since those are unnecessary now that one
     // attempt completed successfully).
     for (attemptInfo <- taskAttempts(index) if attemptInfo.running) {
@@ -874,13 +879,21 @@ private[spark] class TaskSetManager(
       }
     }
     for ((tid, info) <- taskInfos if info.running && info.executorId == execId) {
-      val exitCausedByApp: Boolean = reason match {
-        case exited: ExecutorExited => exited.exitCausedByApp
-        case ExecutorKilled => false
-        case _ => true
-      }
-      handleFailedTask(tid, TaskState.FAILED, ExecutorLostFailure(info.executorId, exitCausedByApp,
-        Some(reason.toString)))
+//      val exitCausedByApp: Boolean = reason match {
+//        case exited: ExecutorExited => exited.exitCausedByApp
+//        case ExecutorKilled => false
+//        case _ => true
+//      }
+//      handleFailedTask(tid, TaskState.FAILED,
+//        ExecutorLostFailure(info.executorId, exitCausedByApp,
+//          Some(reason.toString)))
+//      handleFailedTask(tid, TaskState.FINISHED,
+//        ExecutorLostFailure(info.executorId, exitCausedByApp,
+//          Some(reason.toString)))
+      logWarning(
+        s"@hji, Task ${info.id} in stage ${taskSet.id} (TID $tid) failed due to executor loss, " +
+          s"but neglect them (mark as successful) rather than delay the whole stage...")
+      handleSuccessfulTask(tid, null)
     }
     // recalculate valid locality levels and waits when executor is lost
     recomputeLocality()
