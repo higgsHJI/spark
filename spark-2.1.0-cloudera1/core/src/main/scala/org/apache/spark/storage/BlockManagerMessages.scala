@@ -100,6 +100,8 @@ private[spark] object BlockManagerMessages {
 
   case object GetMemoryStatus extends ToBlockManagerMaster
 
+  case object ExpireZombieBlockManager extends ToBlockManagerMaster
+
   case object GetStorageStatus extends ToBlockManagerMaster
 
   case class GetBlockStatus(blockId: BlockId, askSlaves: Boolean = true)

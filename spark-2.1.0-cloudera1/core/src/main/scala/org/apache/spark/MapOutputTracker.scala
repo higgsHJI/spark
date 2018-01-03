@@ -692,11 +692,8 @@ private[spark] object MapOutputTracker extends Logging {
     val splitsByAddress = new HashMap[BlockManagerId, ArrayBuffer[(BlockId, Long)]]
     for ((status, mapId) <- statuses.zipWithIndex) {
       if (status == null) {
-        val errorMessage = s"Missing an output location for shuffle $shuffleId" +
-        ". @hji, continue processing instead of throwing MetadataFetchFailedException."
-        logWarning(errorMessage)
-        // @hji
-        // throw new MetadataFetchFailedException(shuffleId, startPartition, errorMessage)
+        val errorMessage = s"Missing an output location for shuffle $shuffleId"
+        throw new MetadataFetchFailedException(shuffleId, startPartition, errorMessage)
       } else {
         for (part <- startPartition until endPartition) {
           splitsByAddress.getOrElseUpdate(status.location, ArrayBuffer()) +=

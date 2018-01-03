@@ -610,8 +610,6 @@ private[spark] class TaskSchedulerImpl private[scheduler](
       taskIds.foreach(cleanupTaskState)
     }
 
-    logWarning(s"@hji, proactively remove executor and mark the tasks there as SUCCESS" +
-      s"...{${reason.toString}}")
     val host = executorIdToHost(executorId)
     val execs = hostToExecutors.getOrElse(host, new HashSet)
     execs -= executorId

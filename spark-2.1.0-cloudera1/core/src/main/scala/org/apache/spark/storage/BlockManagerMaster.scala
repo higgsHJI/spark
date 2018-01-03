@@ -17,10 +17,11 @@
 
 package org.apache.spark.storage
 
+import java.io.IOException
+
 import scala.collection.Iterable
 import scala.collection.generic.CanBuildFrom
 import scala.concurrent.Future
-
 import org.apache.spark.{SparkConf, SparkException}
 import org.apache.spark.internal.Logging
 import org.apache.spark.rpc.RpcEndpointRef
@@ -118,6 +119,11 @@ class BlockManagerMaster(
   def removeRdd(rddId: Int, blocking: Boolean) {
     val future = driverEndpoint.askWithRetry[Future[Seq[Int]]](RemoveRdd(rddId))
     future.onFailure {
+      case cce: IOException =>
+        // case cce: ClosedChannelException =>
+        logWarning(s"Failed to remove RDD $rddId - ${cce.getMessage}", cce)
+        logWarning("Ok, previously failed to remove a dead executor from driver, remove it...")
+        driverEndpoint.ask(ExpireZombieBlockManager)
       case e: Exception =>
         logWarning(s"Failed to remove RDD $rddId - ${e.getMessage}", e)
     }(ThreadUtils.sameThread)
