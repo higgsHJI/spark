@@ -65,9 +65,6 @@ private[scheduler]
 case class BeginEvent(task: Task[_], taskInfo: TaskInfo) extends DAGSchedulerEvent
 
 private[scheduler]
-case object ShuffleMapProgressCheck extends DAGSchedulerEvent
-
-private[scheduler]
 case class GettingResultEvent(taskInfo: TaskInfo) extends DAGSchedulerEvent
 
 private[scheduler] case class CompletionEvent(
