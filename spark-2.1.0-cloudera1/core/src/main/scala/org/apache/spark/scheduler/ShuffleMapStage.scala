@@ -47,6 +47,8 @@ private[spark] class ShuffleMapStage(
 
   private[this] var _numAvailableOutputs: Int = 0
 
+  private[this] var _earlyTerminateTimestamp: Option[Long] = Option.empty
+
   /**
    * List of [[MapStatus]] for each partition. The index of the array is the map partition id,
    * and each value in the array is the list of possible [[MapStatus]] for a partition
@@ -55,6 +57,12 @@ private[spark] class ShuffleMapStage(
   private[this] val outputLocs = Array.fill[List[MapStatus]](numPartitions)(Nil)
 
   override def toString: String = "ShuffleMapStage " + id
+
+  def setEarlyTerminateTimestamp(timestamp: Long): Unit = {
+    _earlyTerminateTimestamp = Option(timestamp)
+  }
+
+  def getEarlyTerminateTimestamp: Option[Long] = _earlyTerminateTimestamp
 
   /**
    * Returns the list of active jobs,

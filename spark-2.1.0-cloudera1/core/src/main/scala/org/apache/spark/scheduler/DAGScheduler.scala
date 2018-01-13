@@ -161,6 +161,9 @@ class DAGScheduler(
 
   private[scheduler] val activeJobs = new HashSet[ActiveJob]
 
+  private val shuffleMapProgressCheckThread =
+    ThreadUtils.newDaemonSingleThreadScheduledExecutor("driver-shuffle-map-thread")
+
   /**
    * Contains the locations that each RDD's partitions are cached on.  This map's keys are RDD ids
    * and its values are arrays indexed by partition numbers. Each array value is the set of
@@ -192,6 +195,30 @@ class DAGScheduler(
 
   private[scheduler] val eventProcessLoop = new DAGSchedulerEventProcessLoop(this)
   taskScheduler.setDAGScheduler(this)
+
+  // terminate the ShuffleMapStage if
+  // shuffleMapTerminateRatio tasks have finished and shuffleMapTimeOutMs is reached
+
+  private val shuffleMapTerminateRatio =
+    sc.getConf.getDouble("spark.shufflemap.progress.terminate.ratio", .97)
+
+  private val shuffleMapTimeOutMs =
+    sc.getConf.getInt("spark.shufflemap.progress.terminate.additionalTimeout", 2) * 1000
+
+  private val shuffleMapProgressCheckEnabled =
+    sc.getConf.getBoolean("spark.shufflemap.progress.check.enabled", false)
+
+  private val shuffleMapProgressCheckIntervalSec =
+    sc.getConf.getInt("spark.shufflemap.progress.check.interval", 1)
+
+  // default this check is off
+  if (shuffleMapProgressCheckEnabled) {
+    shuffleMapProgressCheckThread.scheduleAtFixedRate(new Runnable {
+      override def run(): Unit = {
+        eventProcessLoop.post(ShuffleMapProgressCheck)
+      }
+    }, 0, shuffleMapProgressCheckIntervalSec, TimeUnit.SECONDS)
+  }
 
   /**
    * Called by the TaskSetManager to report task's starting.
@@ -784,6 +811,71 @@ class DAGScheduler(
     val jobIds = activeInGroup.map(_.jobId)
     jobIds.foreach(handleJobCancellation(_, "part of cancelled job group %s".format(groupId)))
   }
+
+  private[scheduler] def handleShuffleMapProgressCheck(): Unit = {
+    // We first get a list of all ShuffleMapStages in progress
+    val shuffleMapStagesInProgress = runningStages.filter(
+      x => x.isInstanceOf[ShuffleMapStage]).map(x => x.asInstanceOf[ShuffleMapStage])
+
+    shuffleMapStagesInProgress.foreach { smt =>
+      // For each stage:
+      //   - We check if earlyTerminationTimeStamp is set
+      if (smt.getEarlyTerminateTimestamp.isDefined) {
+        // If yes, we check if we are past termination timestamp and then inject empty partitions
+        if (clock.getTimeMillis() - smt.getEarlyTerminateTimestamp.get >= shuffleMapTimeOutMs) {
+          // taskEnded(smt, MarkedSuccess, null, Seq.empty, null))
+          // Now we need to trigger the completion event
+
+          // Now we need to inject empty results for the pending partitions
+          val numReducePartitions = smt.shuffleDep.partitioner.numPartitions
+          logInfo(s"time out reached for stage ${smt.id}, with currentTimsMs = " +
+            s"${clock.getTimeMillis()}, numPartitions $numReducePartitions")
+          smt.pendingPartitions.foreach(
+            smt.addOutputLoc(_, MapStatus(env.blockManager.blockManagerId,
+              Array.fill(numReducePartitions)(0))))
+          smt.pendingPartitions.foreach(print(_))
+          logInfo(s"pendingPartitions size = ${smt.pendingPartitions.size}" )
+          smt.pendingPartitions.clear
+
+          markStageAsFinished(smt)
+          logInfo("looking for newly runnable stages")
+          logInfo(s"running: $runningStages")
+          logInfo(s"waiting: $waitingStages"  )
+          logInfo(s"failed: $failedStages"  )
+
+          // We supply true to increment the epoch number here in case this is a
+          // recomputation of the map outputs. In that case, some nodes may have cached
+          // locations with holes (from when we detected the error) and will need the
+          // epoch incremented to refetch them.
+          // TODO: Only increment the epoch number if this is not the first time
+          //       we registered these map outputs.
+          mapOutputTracker.registerMapOutputs(
+            smt.shuffleDep.shuffleId,
+            smt.outputLocInMapOutputTrackerFormat(),
+            changeEpoch = true)
+          clearCacheLocs()
+
+          // Mark any map-stage jobs waiting on this stage as finished
+          if (smt.mapStageJobs.nonEmpty) {
+            val stats = mapOutputTracker.getStatistics(smt.shuffleDep)
+            for (job <- smt.mapStageJobs) {
+              markMapStageJobAsFinished(job, stats)
+            }
+          }
+          submitWaitingChildStages(smt)
+        }
+      } else {
+        // Else we check the percentage of tasks complete and set the earlyTerminationTimestamp
+        if (smt.pendingPartitions.size * 1.0 / smt.numTasks <= (1 - shuffleMapTerminateRatio)) {
+          if (smt.getEarlyTerminateTimestamp.isEmpty) {
+            smt.setEarlyTerminateTimestamp(clock.getTimeMillis())
+            logInfo(s"For ${smt.id}, earlyTerminateMs = ${clock.getTimeMillis()}")
+          }
+        }
+      }
+    }
+  }
+
 
   private[scheduler] def handleBeginEvent(task: Task[_], taskInfo: TaskInfo) {
     // Note that there is a chance that this task is launched after the stage is cancelled.
@@ -1667,6 +1759,9 @@ private[scheduler] class DAGSchedulerEventProcessLoop(dagScheduler: DAGScheduler
 
     case ResubmitFailedStages =>
       dagScheduler.resubmitFailedStages()
+
+    case ShuffleMapProgressCheck =>
+      dagScheduler.handleShuffleMapProgressCheck()
   }
 
   override def onError(e: Throwable): Unit = {
